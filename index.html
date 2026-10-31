@@ -48,7 +48,8 @@
     .walk { white-space: nowrap; font-size: 16px; padding-top: 1px; }
     .hours { padding: 18px 20px; border-bottom: 1px solid #e8e8ec; }
     .hours h2 { margin: 0 0 14px; font-size: 17px; font-weight: 500; }
-    .hrow { display: grid; grid-template-columns: 1fr auto auto; gap: 8px 22px; font-size: 16px; align-items: baseline; }
+    .hrow { display: grid; grid-template-columns: auto 1fr; gap: 8px 22px; font-size: 16px; align-items: baseline; }
+    .hrow span:nth-child(even) { text-align: right; }
     .hrow b { font-weight: 700; }
     .hrow span.k { color: #666; }
     .link { display: block; text-align: right; margin-top: 14px; color: #5a3df0; font-size: 16px; text-decoration: none; }
@@ -71,18 +72,14 @@
     <div class="sheet-body">
       <div id="map"></div>
       <div class="row">
-        <div class="name">Coffeestamp: Grounds for Change<small>Hillman Hall</small></div>
-        <div class="walk">2 min walk</div>
+        <div class="name"><span id="r-name"></span><small id="r-building"></small></div>
+        <div class="walk" id="r-walk"></div>
       </div>
       <div class="hours">
         <h2>Hours</h2>
-        <div class="hrow">
-          <b>Mon&ndash;Fri</b><span class="k">Pickup:</span><span>8:00am&ndash;2:00pm</span>
-          <span></span><span class="k">Delivery:</span><span>8:00am&ndash;2:00pm</span>
-        </div>
+        <div class="hrow" id="r-hours"></div>
         <a class="link" href="#">See full schedule</a>
       </div>
-      <div class="menu">Coffee, Espresso, Tea, Iced Tea, Pastries, Breakfast, Bagel, Muffin, Scone, Chai Latte</div>
     </div>
   </section>
 
@@ -126,6 +123,7 @@
 
   /* ---- Map (shared by the sheet preview and the full-screen view) ---- */
   const STYLE = "https://tiles.openfreemap.org/styles/positron";
+  const DEFAULT = "Coffeestamp: Grounds for Change";
   const pinImage = color => {
     const s = 2, w = 24 * s, h = 34 * s, c = document.createElement("canvas");
     c.width = w; c.height = h;
@@ -136,64 +134,104 @@
     return g.getImageData(0, 0, w, h);
   };
   const HALO = { "text-color": "#222", "text-halo-color": "#fff", "text-halo-width": 1.8 };
-
-  function buildMap(container, full) {
-    const map = new maplibregl.Map({ container, style: STYLE, center: [-90.3042, 38.6467], zoom: 17, interactive: full, attributionControl: { compact: true } });
-    if (full) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    map.on("load", async () => {
-      map.addSource("bldg-labels", { type: "geojson", data: await (await fetch("labels.geojson")).json() });
-      map.addLayer({ id: "bldg-labels", type: "symbol", source: "bldg-labels", minzoom: full ? 15.5 : 0,
-        layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 15.5, 9, 18, 12], "text-max-width": 7, "text-padding": 2 },
-        paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1.5 } });
-      const route = await (await fetch("route.geojson")).json();
-      map.addSource("route", { type: "geojson", data: route });
-      map.addLayer({ id: "route-line", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#4285f4", "line-width": 4, "line-dasharray": [0.1, 2] } });
-      const you = route.geometry.coordinates[0];
-      map.addSource("you", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: you } } });
-      map.addLayer({ id: "you-halo", type: "circle", source: "you", paint: { "circle-radius": 18, "circle-color": "#4285f4", "circle-opacity": 0.3 } });
-      map.addLayer({ id: "you-dot", type: "circle", source: "you", paint: { "circle-radius": 8, "circle-color": "#4285f4", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
-      (function pulse(t) {
-        const k = (t % 2000) / 2000;
-        map.setPaintProperty("you-halo", "circle-radius", 10 + 14 * k);
-        map.setPaintProperty("you-halo", "circle-opacity", 0.4 * (1 - k));
-        requestAnimationFrame(pulse);
-      })(0);
-      map.addImage("pin", pinImage("#808080"), { pixelRatio: 2 });
-      map.addImage("pin-red", pinImage("#d93025"), { pixelRatio: 2 });
-      const isCS = ["==", ["slice", ["get", "name"], 0, 11], "Coffeestamp"];
-      const dining = await (await fetch("dining.geojson")).json();
-      // Preview shows only Coffeestamp; full-screen view shows every dining spot
-      if (!full) dining.features = dining.features.filter(f => f.properties.name.startsWith("Coffeestamp"));
-      map.addSource("dining", { type: "geojson", data: dining });
-      map.addLayer({ id: "dining-pts", type: "symbol", source: "dining",
-        layout: { "icon-image": ["case", isCS, "pin-red", "pin"], "icon-anchor": "bottom", "icon-allow-overlap": true, "symbol-sort-key": ["case", isCS, 1, 0] } });
-      map.addLayer({ id: "dining-labels", type: "symbol", source: "dining",
-        layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 8,
-          "text-variable-anchor": ["left", "right", "top"], "text-radial-offset": 1.4, "text-allow-overlap": true, "text-offset": [0, -1.2] }, paint: HALO });
-      const b = new maplibregl.LngLatBounds();
-      route.geometry.coordinates.forEach(p => b.extend(p));
-      map.fitBounds(b, { padding: full ? { top: 120, bottom: 120, left: 60, right: 60 } : { top: 40, bottom: 50, left: 120, right: 60 }, duration: 0, maxZoom: 18.5 });
-    });
-    // Text labels only: strip icons from the base style
-    map.on("styledata", () => map.getStyle().layers.forEach(l => {
-      if (l.id !== "dining-pts" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
-    }));
-    return map;
-  }
-
-  buildMap("map", false);
-
-  /* ---- Tap the preview to open the full-screen map; back button returns ---- */
   const fullEl = document.getElementById("fullmap");
-  let fullMap = null;
-  const openFull = () => {
-    fullEl.classList.add("open");
-    if (!fullMap) fullMap = buildMap("map-full", true);
-    else fullMap.resize();
-  };
-  document.getElementById("map").addEventListener("click", openFull);
-  document.getElementById("back").addEventListener("click", () => fullEl.classList.remove("open"));
+
+  (async () => {
+    const [ROUTES, DINING] = await Promise.all([
+      fetch("routes.json").then(r => r.json()), fetch("dining.geojson").then(r => r.json())
+    ]);
+    const YOU = ROUTES[DEFAULT].coords[0];   // the person's location never changes
+    const props = {}; DINING.features.forEach(f => props[f.properties.name] = f.properties);
+    let selected = DEFAULT;
+    const mapsReady = [];
+
+    const routeFeature = name => ({ type: "Feature", geometry: { type: "LineString", coordinates: ROUTES[name].coords } });
+    const routeBounds = name => { const b = new maplibregl.LngLatBounds(); ROUTES[name].coords.forEach(p => b.extend(p)); return b; };
+    const PAD_SMALL = { top: 40, bottom: 50, left: 120, right: 60 }, PAD_FULL = { top: 120, bottom: 120, left: 60, right: 60 };
+
+    function render(name) {
+      const p = props[name], mins = Math.max(1, Math.round(ROUTES[name].duration / 60));
+      document.getElementById("r-name").textContent = name;
+      document.getElementById("r-building").textContent = p.building;
+      document.getElementById("r-walk").textContent = mins + " min walk";
+      document.getElementById("r-hours").innerHTML = p.hours
+        ? p.hours.map(([k, v]) => `<b>${k}</b><span>${v}</span>`).join("")
+        : '<span class="k" style="grid-column:1/-1">Hours not listed</span>';
+    }
+
+    function applySelection(name) {
+      selected = name; render(name);
+      mapsReady.forEach(({ map, full }) => {
+        map.getSource("route").setData(routeFeature(name));
+        const eq = ["==", ["get", "name"], name];
+        if (full) map.setLayoutProperty("dining-pts", "icon-image", ["case", eq, "pin-red", "pin"]);
+        else {
+          map.setFilter("dining-pts", eq); map.setFilter("dining-labels", eq);
+          map.fitBounds(routeBounds(name), { padding: PAD_SMALL, duration: 0, maxZoom: 18.5 });
+        }
+      });
+    }
+
+    function buildMap(container, full) {
+      const map = new maplibregl.Map({ container, style: STYLE, center: [-90.3042, 38.6467], zoom: 17, interactive: full, attributionControl: { compact: true } });
+      if (full) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+      map.on("load", async () => {
+        map.addSource("bldg-labels", { type: "geojson", data: await (await fetch("labels.geojson")).json() });
+        map.addLayer({ id: "bldg-labels", type: "symbol", source: "bldg-labels", minzoom: full ? 15.5 : 0,
+          layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 15.5, 9, 18, 12], "text-max-width": 7, "text-padding": 2 },
+          paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1.5 } });
+        map.addSource("route", { type: "geojson", data: routeFeature(selected) });
+        map.addLayer({ id: "route-line", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": "#4285f4", "line-width": 4, "line-dasharray": [0.1, 2] } });
+        map.addSource("you", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: YOU } } });
+        map.addLayer({ id: "you-halo", type: "circle", source: "you", paint: { "circle-radius": 18, "circle-color": "#4285f4", "circle-opacity": 0.3 } });
+        map.addLayer({ id: "you-dot", type: "circle", source: "you", paint: { "circle-radius": 8, "circle-color": "#4285f4", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
+        (function pulse(t) {
+          const k = (t % 2000) / 2000;
+          map.setPaintProperty("you-halo", "circle-radius", 10 + 14 * k);
+          map.setPaintProperty("you-halo", "circle-opacity", 0.4 * (1 - k));
+          requestAnimationFrame(pulse);
+        })(0);
+        map.addImage("pin", pinImage("#808080"), { pixelRatio: 2 });
+        map.addImage("pin-red", pinImage("#d93025"), { pixelRatio: 2 });
+        map.addSource("dining", { type: "geojson", data: DINING });
+        const eq = ["==", ["get", "name"], selected];
+        map.addLayer({ id: "dining-pts", type: "symbol", source: "dining",
+          layout: { "icon-image": full ? ["case", eq, "pin-red", "pin"] : "pin-red", "icon-anchor": "bottom", "icon-allow-overlap": true } });
+        map.addLayer({ id: "dining-labels", type: "symbol", source: "dining",
+          layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 8,
+            "text-variable-anchor": ["left", "right", "top"], "text-radial-offset": 1.4, "text-allow-overlap": true, "text-offset": [0, -1.2] }, paint: HALO });
+        if (!full) { map.setFilter("dining-pts", eq); map.setFilter("dining-labels", eq); }
+        else {
+          const pick = e => { applySelection(e.features[0].properties.name); fullEl.classList.remove("open"); };
+          ["dining-pts", "dining-labels"].forEach(id => {
+            map.on("click", id, pick);
+            map.on("mouseenter", id, () => map.getCanvas().style.cursor = "pointer");
+            map.on("mouseleave", id, () => map.getCanvas().style.cursor = "");
+          });
+        }
+        map.fitBounds(routeBounds(selected), { padding: full ? PAD_FULL : PAD_SMALL, duration: 0, maxZoom: 18.5 });
+        mapsReady.push({ map, full });
+      });
+      // Text labels only: strip icons from the base style
+      map.on("styledata", () => map.getStyle().layers.forEach(l => {
+        if (l.id !== "dining-pts" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
+      }));
+      return map;
+    }
+
+    render(selected);
+    buildMap("map", false);
+
+    /* ---- Tap the preview to open the full-screen map; tap a restaurant there to switch; back returns ---- */
+    let fullMap = null;
+    document.getElementById("map").addEventListener("click", () => {
+      fullEl.classList.add("open");
+      if (!fullMap) fullMap = buildMap("map-full", true);
+      else { fullMap.resize(); fullMap.fitBounds(routeBounds(selected), { padding: PAD_FULL, duration: 0, maxZoom: 18.5 }); }
+    });
+    document.getElementById("back").addEventListener("click", () => fullEl.classList.remove("open"));
+  })();
 </script>
 </body>
 </html>
