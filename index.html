@@ -2,42 +2,139 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WashU Campus Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Coffeestamp: Store Info</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <style>
-    html, body, #map { margin: 0; height: 100%; background: #f2f2f2; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #e9e9ec; font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; color: #111; -webkit-font-smoothing: antialiased; }
+    body { display: flex; align-items: center; justify-content: center; }
+
+    /* iPhone 15 Pro-ish: 393 x 852 */
+    .phone { position: relative; width: 393px; height: 852px; overflow: hidden; background: #4d4d4d; border-radius: 54px; border: 10px solid #111; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+    @media (max-width: 520px), (max-height: 880px) and (max-width: 520px) {
+      body { display: block; background: #4d4d4d; }
+      .phone { width: 100%; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+    }
+
+    /* dimmed restaurant page behind the sheet */
+    .status { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; justify-content: space-between; align-items: center; padding: 8px 34px 0 34px; color: #fff; font-weight: 600; font-size: 16px; z-index: 6; pointer-events: none; }
+    .island { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 112px; height: 33px; background: #000; border-radius: 20px; z-index: 6; }
+    .bg-btn { position: absolute; top: 64px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.14); display: grid; place-items: center; color: #fff; }
+    .bg-btn svg { width: 20px; height: 20px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .logo-tab { position: absolute; left: 18px; top: 200px; width: 64px; height: 64px; border-radius: 22px 22px 0 0; background: rgba(255,255,255,.12); display: grid; place-items: center; color: rgba(255,255,255,.55); font-size: 11px; text-align: center; line-height: 1.1; font-weight: 600; }
+    .bg-strip { position: absolute; left: 0; right: 0; top: 262px; bottom: 0; background: rgba(255,255,255,.1); padding: 36px 16px; color: rgba(255,255,255,.55); font-size: 14px; }
+
+    /* sheet */
+    .sheet { position: absolute; left: 0; right: 0; top: 0; height: calc(100% - 44px); background: #fff; border-radius: 28px 28px 0 0; z-index: 5; will-change: transform; transition: transform .28s cubic-bezier(.2,.8,.2,1); display: flex; flex-direction: column; box-shadow: 0 -4px 24px rgba(0,0,0,.15); }
+    .sheet.drag { transition: none; }
+    .sheet-head { padding: 8px 0 14px; text-align: center; cursor: grab; touch-action: none; user-select: none; flex: none; }
+    .grabber { width: 38px; height: 5px; background: #d4d4d8; border-radius: 3px; margin: 0 auto 10px; }
+    .sheet-head h1 { margin: 0; font-size: 17px; font-weight: 700; }
+    .sheet-body { overflow-y: auto; flex: 1; padding-bottom: 60px; overscroll-behavior: contain; }
+
+    #map { width: 100%; height: 220px; background: #f2f2f2; }
+    .maplibregl-ctrl-attrib { font-size: 9px; }
+
+    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e8e8ec; }
+    .name { font-size: 17px; line-height: 1.3; }
+    .name small { display: block; font-size: 15px; color: #666; margin-top: 2px; }
+    .walk { white-space: nowrap; font-size: 16px; padding-top: 1px; }
+    .hours { padding: 18px 20px; border-bottom: 1px solid #e8e8ec; }
+    .hours h2 { margin: 0 0 14px; font-size: 17px; font-weight: 500; }
+    .hrow { display: grid; grid-template-columns: 1fr auto auto; gap: 8px 22px; font-size: 16px; align-items: baseline; }
+    .hrow b { font-weight: 700; }
+    .hrow span.k { color: #666; }
+    .link { display: block; text-align: right; margin-top: 14px; color: #5a3df0; font-size: 16px; text-decoration: none; }
+    .menu { padding: 18px 20px; color: #666; font-size: 16px; line-height: 1.55; }
   </style>
 </head>
 <body>
-<div id="map"></div><script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<div class="phone" id="phone">
+  <div class="island"></div>
+  <div class="status"><span>3:40</span><span>&#9679;&#9679;&#9679; 11</span></div>
+
+  <div class="bg-btn" style="left:18px"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div>
+  <div class="bg-btn" style="right:68px"></div>
+  <div class="bg-btn" style="right:18px"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.1"/></svg></div>
+  <div class="logo-tab">Coffee<br>stamp</div>
+  <div class="bg-strip">Coffee, Tea, Pastries</div>
+
+  <section class="sheet" id="sheet" aria-label="Store info">
+    <div class="sheet-head" id="head"><div class="grabber"></div><h1>Store info</h1></div>
+    <div class="sheet-body">
+      <div id="map"></div>
+      <div class="row">
+        <div class="name">Coffeestamp: Grounds for Change<small>Hillman Hall</small></div>
+        <div class="walk">2 min walk</div>
+      </div>
+      <div class="hours">
+        <h2>Hours</h2>
+        <div class="hrow">
+          <b>Mon&ndash;Fri</b><span class="k">Pickup:</span><span>8:00am&ndash;2:00pm</span>
+          <span></span><span class="k">Delivery:</span><span>8:00am&ndash;2:00pm</span>
+        </div>
+        <a class="link" href="#">See full schedule</a>
+      </div>
+      <div class="menu">Coffee, Espresso, Tea, Iced Tea, Pastries, Breakfast, Bagel, Muffin, Scone, Chai Latte</div>
+    </div>
+  </section>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
+  /* ---- Bottom sheet: half-open -> swipe all the way up ---- */
+  const phone = document.getElementById("phone"), sheet = document.getElementById("sheet"), head = document.getElementById("head");
+  const pos = () => ({ open: Math.round(phone.clientHeight * 0.3), full: 56 });
+  let y = pos().open, state = "open";
+  const set = v => { y = v; sheet.style.transform = `translateY(${v}px)`; };
+  const snap = s => { state = s; set(pos()[s]); };
+  snap("open");
+  addEventListener("resize", () => snap(state));
+
+  let drag = null;
+  head.addEventListener("pointerdown", e => { drag = { sy: e.clientY, y0: y, t: performance.now(), moved: false }; head.setPointerCapture(e.pointerId); sheet.classList.add("drag"); });
+  head.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const dy = e.clientY - drag.sy;
+    if (Math.abs(dy) > 3) drag.moved = true;
+    const p = pos();
+    set(Math.min(p.open + 40, Math.max(p.full, drag.y0 + dy)));
+  });
+  const end = e => {
+    if (!drag) return;
+    sheet.classList.remove("drag");
+    const p = pos(), dy = e.clientY - drag.sy, v = dy / (performance.now() - drag.t);
+    if (!drag.moved) snap(state === "open" ? "full" : "open");
+    else if (Math.abs(v) > 0.4) snap(v < 0 ? "full" : "open");
+    else snap(Math.abs(y - p.full) < Math.abs(y - p.open) ? "full" : "open");
+    drag = null;
+  };
+  head.addEventListener("pointerup", end);
+  head.addEventListener("pointercancel", end);
+
+  /* ---- Map ---- */
   const map = new maplibregl.Map({
     container: "map",
     style: "https://tiles.openfreemap.org/styles/positron",
-    center: [-90.3085, 38.6482],
-    zoom: 16.3,
-    maxZoom: 20,
-    attributionControl: { compact: true }
+    center: [-90.3042, 38.6467], zoom: 17,
+    interactive: false, attributionControl: { compact: true }
   });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.on("load", async () => {
-    const data = await (await fetch("labels.geojson")).json();
-    map.addSource("bldg-labels", { type: "geojson", data });
+    map.addSource("bldg-labels", { type: "geojson", data: await (await fetch("labels.geojson")).json() });
     map.addLayer({
-      id: "bldg-labels", type: "symbol", source: "bldg-labels", minzoom: 15.5,
-      layout: {
-        "text-field": ["get", "name"],
-        "text-font": ["Noto Sans Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 15.5, 9, 18, 12],
-        "text-max-width": 7,
-        "text-padding": 2
-      },
+      id: "bldg-labels", type: "symbol", source: "bldg-labels",
+      layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 11, "text-max-width": 7, "text-padding": 2 },
       paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1.5 }
     });
-    // Fake "you are here" dot, inside Givens Hall: map layers, so it stays pinned to its coordinates
-    map.addSource("you", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: [-90.3036172, 38.6466379] } } });
-    map.addLayer({ id: "you-halo", type: "circle", source: "you", paint: { "circle-radius": 18, "circle-color": "#4285f4", "circle-opacity": 0.3, "circle-pitch-alignment": "map" } });
+    const route = await (await fetch("route.geojson")).json();
+    map.addSource("route", { type: "geojson", data: route });
+    map.addLayer({ id: "route-line", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#4285f4", "line-width": 4, "line-dasharray": [0.1, 2] } });
+    // you-are-here dot (map layers, stays pinned to its coordinates)
+    const you = route.geometry.coordinates[0];
+    map.addSource("you", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: you } } });
+    map.addLayer({ id: "you-halo", type: "circle", source: "you", paint: { "circle-radius": 18, "circle-color": "#4285f4", "circle-opacity": 0.3 } });
     map.addLayer({ id: "you-dot", type: "circle", source: "you", paint: { "circle-radius": 8, "circle-color": "#4285f4", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
     (function pulse(t) {
       const k = (t % 2000) / 2000;
@@ -45,59 +142,27 @@
       map.setPaintProperty("you-halo", "circle-opacity", 0.4 * (1 - k));
       requestAnimationFrame(pulse);
     })(0);
-    // Dotted walking route from the dot to Coffeestamp (precomputed from OSM walking routes)
-    const route = await (await fetch("route.geojson")).json();
-    map.addSource("route", { type: "geojson", data: route });
-    map.addLayer({
-      id: "route-line", type: "line", source: "route",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#4285f4", "line-width": 4, "line-dasharray": [0.1, 2] }
-    }, "you-halo");
-    const dining = await (await fetch("dining.geojson")).json();
-    map.addSource("dining", { type: "geojson", data: dining });
-    // Teardrop pin, drawn once on a canvas
-    const makePin = (name, color) => {
-      const s = 2, w = 24 * s, h = 34 * s, c = document.createElement("canvas");
-      c.width = w; c.height = h;
-      const g = c.getContext("2d");
-      g.scale(s, s);
-      g.beginPath();
-      g.moveTo(12, 33);
-      g.bezierCurveTo(12, 33, 2, 20, 2, 12);
-      g.arc(12, 12, 10, Math.PI, 0);
-      g.bezierCurveTo(22, 20, 12, 33, 12, 33);
-      g.closePath();
-      g.fillStyle = color; g.fill();
-      g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
-      g.beginPath(); g.arc(12, 12, 3.6, 0, Math.PI * 2); g.fillStyle = "#fff"; g.fill();
-      map.addImage(name, g.getImageData(0, 0, w, h), { pixelRatio: s });
-    };
-    makePin("pin", "#808080");
-    makePin("pin-red", "#d93025");
-    map.addLayer({
-      id: "dining-pts", type: "symbol", source: "dining",
-      layout: {
-        "icon-image": ["case", ["==", ["slice", ["get", "name"], 0, 11], "Coffeestamp"], "pin-red", "pin"],
-        "icon-anchor": "bottom", "icon-allow-overlap": true,
-        "symbol-sort-key": ["case", ["==", ["slice", ["get", "name"], 0, 11], "Coffeestamp"], 1, 0]
-      }
-    });
-    map.addLayer({
-      id: "dining-labels", type: "symbol", source: "dining",
-      layout: {
-        "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 9,
-        "text-variable-anchor": ["left", "right", "top"], "text-radial-offset": 1.4, "text-allow-overlap": true,
-        "text-offset": [0, -1.2]
-      },
-      paint: { "text-color": "#222", "text-halo-color": "#fff", "text-halo-width": 1.8 }
-    });
+    // Coffeestamp pin (red)
+    const s = 2, w = 24 * s, h = 34 * s, c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d"); g.scale(s, s);
+    g.beginPath(); g.moveTo(12, 33); g.bezierCurveTo(12, 33, 2, 20, 2, 12); g.arc(12, 12, 10, Math.PI, 0); g.bezierCurveTo(22, 20, 12, 33, 12, 33); g.closePath();
+    g.fillStyle = "#d93025"; g.fill(); g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
+    g.beginPath(); g.arc(12, 12, 3.6, 0, Math.PI * 2); g.fillStyle = "#fff"; g.fill();
+    map.addImage("pin-red", g.getImageData(0, 0, w, h), { pixelRatio: s });
+    const dest = route.geometry.coordinates[route.geometry.coordinates.length - 1];
+    map.addSource("dest", { type: "geojson", data: { type: "Feature", properties: { name: "Coffeestamp: Grounds for Change" }, geometry: { type: "Point", coordinates: dest } } });
+    map.addLayer({ id: "dest-pin", type: "symbol", source: "dest", layout: { "icon-image": "pin-red", "icon-anchor": "bottom", "icon-allow-overlap": true } });
+    map.addLayer({ id: "dest-label", type: "symbol", source: "dest", layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 8, "text-anchor": "right", "text-offset": [-1.4, -1.2], "text-allow-overlap": true },
+      paint: { "text-color": "#222", "text-halo-color": "#fff", "text-halo-width": 1.8 } });
+    const b = new maplibregl.LngLatBounds();
+    route.geometry.coordinates.forEach(p => b.extend(p));
+    map.fitBounds(b, { padding: { top: 40, bottom: 50, left: 120, right: 60 }, duration: 0, maxZoom: 18.5 });
   });
-  // Labels only: strip every icon from symbol layers
-  map.on("styledata", () => {
-    map.getStyle().layers.forEach(l => {
-      if (l.id !== "dining-pts" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
-    });
-  });
+  // Text labels only: strip icons from the base style
+  map.on("styledata", () => map.getStyle().layers.forEach(l => {
+    if (l.id !== "dest-pin" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
+  }));
 </script>
 </body>
 </html>

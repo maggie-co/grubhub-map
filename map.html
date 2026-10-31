@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WashU Campus Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <style>
+    html, body, #map { margin: 0; height: 100%; background: #f2f2f2; }
+  </style>
+</head>
+<body>
+<div id="map"></div><script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+  const map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/positron",
+    center: [-90.3085, 38.6482],
+    zoom: 16.3,
+    maxZoom: 20,
+    attributionControl: { compact: true }
+  });
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  map.on("load", async () => {
+    const data = await (await fetch("labels.geojson")).json();
+    map.addSource("bldg-labels", { type: "geojson", data });
+    map.addLayer({
+      id: "bldg-labels", type: "symbol", source: "bldg-labels", minzoom: 15.5,
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 15.5, 9, 18, 12],
+        "text-max-width": 7,
+        "text-padding": 2
+      },
+      paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1.5 }
+    });
+    // Fake "you are here" dot, inside Givens Hall: map layers, so it stays pinned to its coordinates
+    map.addSource("you", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: [-90.3036172, 38.6466379] } } });
+    map.addLayer({ id: "you-halo", type: "circle", source: "you", paint: { "circle-radius": 18, "circle-color": "#4285f4", "circle-opacity": 0.3, "circle-pitch-alignment": "map" } });
+    map.addLayer({ id: "you-dot", type: "circle", source: "you", paint: { "circle-radius": 8, "circle-color": "#4285f4", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
+    (function pulse(t) {
+      const k = (t % 2000) / 2000;
+      map.setPaintProperty("you-halo", "circle-radius", 10 + 14 * k);
+      map.setPaintProperty("you-halo", "circle-opacity", 0.4 * (1 - k));
+      requestAnimationFrame(pulse);
+    })(0);
+    // Dotted walking route from the dot to Coffeestamp (precomputed from OSM walking routes)
+    const route = await (await fetch("route.geojson")).json();
+    map.addSource("route", { type: "geojson", data: route });
+    map.addLayer({
+      id: "route-line", type: "line", source: "route",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#4285f4", "line-width": 4, "line-dasharray": [0.1, 2] }
+    }, "you-halo");
+    const dining = await (await fetch("dining.geojson")).json();
+    map.addSource("dining", { type: "geojson", data: dining });
+    // Teardrop pin, drawn once on a canvas
+    const makePin = (name, color) => {
+      const s = 2, w = 24 * s, h = 34 * s, c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const g = c.getContext("2d");
+      g.scale(s, s);
+      g.beginPath();
+      g.moveTo(12, 33);
+      g.bezierCurveTo(12, 33, 2, 20, 2, 12);
+      g.arc(12, 12, 10, Math.PI, 0);
+      g.bezierCurveTo(22, 20, 12, 33, 12, 33);
+      g.closePath();
+      g.fillStyle = color; g.fill();
+      g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
+      g.beginPath(); g.arc(12, 12, 3.6, 0, Math.PI * 2); g.fillStyle = "#fff"; g.fill();
+      map.addImage(name, g.getImageData(0, 0, w, h), { pixelRatio: s });
+    };
+    makePin("pin", "#808080");
+    makePin("pin-red", "#d93025");
+    map.addLayer({
+      id: "dining-pts", type: "symbol", source: "dining",
+      layout: {
+        "icon-image": ["case", ["==", ["slice", ["get", "name"], 0, 11], "Coffeestamp"], "pin-red", "pin"],
+        "icon-anchor": "bottom", "icon-allow-overlap": true,
+        "symbol-sort-key": ["case", ["==", ["slice", ["get", "name"], 0, 11], "Coffeestamp"], 1, 0]
+      }
+    });
+    map.addLayer({
+      id: "dining-labels", type: "symbol", source: "dining",
+      layout: {
+        "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 9,
+        "text-variable-anchor": ["left", "right", "top"], "text-radial-offset": 1.4, "text-allow-overlap": true,
+        "text-offset": [0, -1.2]
+      },
+      paint: { "text-color": "#222", "text-halo-color": "#fff", "text-halo-width": 1.8 }
+    });
+  });
+  // Labels only: strip every icon from symbol layers
+  map.on("styledata", () => {
+    map.getStyle().layers.forEach(l => {
+      if (l.id !== "dining-pts" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
+    });
+  });
+</script>
+</body>
+</html>
