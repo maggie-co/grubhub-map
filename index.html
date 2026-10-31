@@ -33,7 +33,13 @@
     .sheet-head h1 { margin: 0; font-size: 17px; font-weight: 700; }
     .sheet-body { overflow-y: auto; flex: 1; padding-bottom: 60px; overscroll-behavior: contain; }
 
-    #map { width: 100%; height: 220px; background: #f2f2f2; }
+    #map { width: 100%; height: 220px; background: #f2f2f2; cursor: pointer; position: relative; }
+    .fullmap { position: absolute; inset: 0; z-index: 20; background: #f2f2f2; transform: translateY(100%); visibility: hidden; transition: transform .3s cubic-bezier(.2,.8,.2,1), visibility 0s .3s; }
+    .fullmap.open { transform: none; visibility: visible; transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+    #map-full { position: absolute; inset: 0; }
+    .back { position: absolute; top: 60px; left: 16px; z-index: 21; height: 40px; padding: 0 16px 0 10px; border: 0; border-radius: 20px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25); display: flex; align-items: center; gap: 4px; font: 600 15px -apple-system, "Helvetica Neue", Arial, sans-serif; color: #111; cursor: pointer; }
+    .back svg { width: 20px; height: 20px; stroke: #111; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    .fullmap .maplibregl-ctrl-top-right { top: 54px; }
     .maplibregl-ctrl-attrib { font-size: 9px; }
 
     .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e8e8ec; }
@@ -79,6 +85,11 @@
       <div class="menu">Coffee, Espresso, Tea, Iced Tea, Pastries, Breakfast, Bagel, Muffin, Scone, Chai Latte</div>
     </div>
   </section>
+
+  <div class="fullmap" id="fullmap">
+    <div id="map-full"></div>
+    <button class="back" id="back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>Back</button>
+  </div>
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -113,56 +124,76 @@
   head.addEventListener("pointerup", end);
   head.addEventListener("pointercancel", end);
 
-  /* ---- Map ---- */
-  const map = new maplibregl.Map({
-    container: "map",
-    style: "https://tiles.openfreemap.org/styles/positron",
-    center: [-90.3042, 38.6467], zoom: 17,
-    interactive: false, attributionControl: { compact: true }
-  });
-  map.on("load", async () => {
-    map.addSource("bldg-labels", { type: "geojson", data: await (await fetch("labels.geojson")).json() });
-    map.addLayer({
-      id: "bldg-labels", type: "symbol", source: "bldg-labels",
-      layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 11, "text-max-width": 7, "text-padding": 2 },
-      paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1.5 }
-    });
-    const route = await (await fetch("route.geojson")).json();
-    map.addSource("route", { type: "geojson", data: route });
-    map.addLayer({ id: "route-line", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#4285f4", "line-width": 4, "line-dasharray": [0.1, 2] } });
-    // you-are-here dot (map layers, stays pinned to its coordinates)
-    const you = route.geometry.coordinates[0];
-    map.addSource("you", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: you } } });
-    map.addLayer({ id: "you-halo", type: "circle", source: "you", paint: { "circle-radius": 18, "circle-color": "#4285f4", "circle-opacity": 0.3 } });
-    map.addLayer({ id: "you-dot", type: "circle", source: "you", paint: { "circle-radius": 8, "circle-color": "#4285f4", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
-    (function pulse(t) {
-      const k = (t % 2000) / 2000;
-      map.setPaintProperty("you-halo", "circle-radius", 10 + 14 * k);
-      map.setPaintProperty("you-halo", "circle-opacity", 0.4 * (1 - k));
-      requestAnimationFrame(pulse);
-    })(0);
-    // Coffeestamp pin (red)
+  /* ---- Map (shared by the sheet preview and the full-screen view) ---- */
+  const STYLE = "https://tiles.openfreemap.org/styles/positron";
+  const pinImage = color => {
     const s = 2, w = 24 * s, h = 34 * s, c = document.createElement("canvas");
     c.width = w; c.height = h;
     const g = c.getContext("2d"); g.scale(s, s);
     g.beginPath(); g.moveTo(12, 33); g.bezierCurveTo(12, 33, 2, 20, 2, 12); g.arc(12, 12, 10, Math.PI, 0); g.bezierCurveTo(22, 20, 12, 33, 12, 33); g.closePath();
-    g.fillStyle = "#d93025"; g.fill(); g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
+    g.fillStyle = color; g.fill(); g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
     g.beginPath(); g.arc(12, 12, 3.6, 0, Math.PI * 2); g.fillStyle = "#fff"; g.fill();
-    map.addImage("pin-red", g.getImageData(0, 0, w, h), { pixelRatio: s });
-    const dest = route.geometry.coordinates[route.geometry.coordinates.length - 1];
-    map.addSource("dest", { type: "geojson", data: { type: "Feature", properties: { name: "Coffeestamp: Grounds for Change" }, geometry: { type: "Point", coordinates: dest } } });
-    map.addLayer({ id: "dest-pin", type: "symbol", source: "dest", layout: { "icon-image": "pin-red", "icon-anchor": "bottom", "icon-allow-overlap": true } });
-    map.addLayer({ id: "dest-label", type: "symbol", source: "dest", layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 8, "text-anchor": "right", "text-offset": [-1.4, -1.2], "text-allow-overlap": true },
-      paint: { "text-color": "#222", "text-halo-color": "#fff", "text-halo-width": 1.8 } });
-    const b = new maplibregl.LngLatBounds();
-    route.geometry.coordinates.forEach(p => b.extend(p));
-    map.fitBounds(b, { padding: { top: 40, bottom: 50, left: 120, right: 60 }, duration: 0, maxZoom: 18.5 });
-  });
-  // Text labels only: strip icons from the base style
-  map.on("styledata", () => map.getStyle().layers.forEach(l => {
-    if (l.id !== "dest-pin" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
-  }));
+    return g.getImageData(0, 0, w, h);
+  };
+  const HALO = { "text-color": "#222", "text-halo-color": "#fff", "text-halo-width": 1.8 };
+
+  function buildMap(container, full) {
+    const map = new maplibregl.Map({ container, style: STYLE, center: [-90.3042, 38.6467], zoom: 17, interactive: full, attributionControl: { compact: true } });
+    if (full) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    map.on("load", async () => {
+      map.addSource("bldg-labels", { type: "geojson", data: await (await fetch("labels.geojson")).json() });
+      map.addLayer({ id: "bldg-labels", type: "symbol", source: "bldg-labels", minzoom: full ? 15.5 : 0,
+        layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 15.5, 9, 18, 12], "text-max-width": 7, "text-padding": 2 },
+        paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1.5 } });
+      const route = await (await fetch("route.geojson")).json();
+      map.addSource("route", { type: "geojson", data: route });
+      map.addLayer({ id: "route-line", type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#4285f4", "line-width": 4, "line-dasharray": [0.1, 2] } });
+      const you = route.geometry.coordinates[0];
+      map.addSource("you", { type: "geojson", data: { type: "Feature", geometry: { type: "Point", coordinates: you } } });
+      map.addLayer({ id: "you-halo", type: "circle", source: "you", paint: { "circle-radius": 18, "circle-color": "#4285f4", "circle-opacity": 0.3 } });
+      map.addLayer({ id: "you-dot", type: "circle", source: "you", paint: { "circle-radius": 8, "circle-color": "#4285f4", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
+      (function pulse(t) {
+        const k = (t % 2000) / 2000;
+        map.setPaintProperty("you-halo", "circle-radius", 10 + 14 * k);
+        map.setPaintProperty("you-halo", "circle-opacity", 0.4 * (1 - k));
+        requestAnimationFrame(pulse);
+      })(0);
+      map.addImage("pin", pinImage("#808080"), { pixelRatio: 2 });
+      map.addImage("pin-red", pinImage("#d93025"), { pixelRatio: 2 });
+      const isCS = ["==", ["slice", ["get", "name"], 0, 11], "Coffeestamp"];
+      const dining = await (await fetch("dining.geojson")).json();
+      // Preview shows only Coffeestamp; full-screen view shows every dining spot
+      if (!full) dining.features = dining.features.filter(f => f.properties.name.startsWith("Coffeestamp"));
+      map.addSource("dining", { type: "geojson", data: dining });
+      map.addLayer({ id: "dining-pts", type: "symbol", source: "dining",
+        layout: { "icon-image": ["case", isCS, "pin-red", "pin"], "icon-anchor": "bottom", "icon-allow-overlap": true, "symbol-sort-key": ["case", isCS, 1, 0] } });
+      map.addLayer({ id: "dining-labels", type: "symbol", source: "dining",
+        layout: { "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 8,
+          "text-variable-anchor": ["left", "right", "top"], "text-radial-offset": 1.4, "text-allow-overlap": true, "text-offset": [0, -1.2] }, paint: HALO });
+      const b = new maplibregl.LngLatBounds();
+      route.geometry.coordinates.forEach(p => b.extend(p));
+      map.fitBounds(b, { padding: full ? { top: 120, bottom: 120, left: 60, right: 60 } : { top: 40, bottom: 50, left: 120, right: 60 }, duration: 0, maxZoom: 18.5 });
+    });
+    // Text labels only: strip icons from the base style
+    map.on("styledata", () => map.getStyle().layers.forEach(l => {
+      if (l.id !== "dining-pts" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
+    }));
+    return map;
+  }
+
+  buildMap("map", false);
+
+  /* ---- Tap the preview to open the full-screen map; back button returns ---- */
+  const fullEl = document.getElementById("fullmap");
+  let fullMap = null;
+  const openFull = () => {
+    fullEl.classList.add("open");
+    if (!fullMap) fullMap = buildMap("map-full", true);
+    else fullMap.resize();
+  };
+  document.getElementById("map").addEventListener("click", openFull);
+  document.getElementById("back").addEventListener("click", () => fullEl.classList.remove("open"));
 </script>
 </body>
 </html>
