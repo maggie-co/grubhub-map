@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WashU Campus Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <style>
+    html, body, #map { margin: 0; height: 100%; background: #f2f2f2; }
+    .you { width: 18px; height: 18px; position: relative; }
+    .you b { position: absolute; inset: 0; background: #4285f4; border: 2.5px solid #fff; border-radius: 50%; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+    .you i { position: absolute; inset: -16px; border-radius: 50%; background: rgba(66,133,244,.35); animation: pulse 2s ease-out infinite; }
+    @keyframes pulse { 0% { transform: scale(.4); opacity: 1; } 100% { transform: scale(1.3); opacity: 0; } }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+  const map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/positron",
+    center: [-90.3085, 38.6482],
+    zoom: 16.3,
+    maxZoom: 20,
+    attributionControl: { compact: true }
+  });
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  // Fake "you are here" dot, inside Givens Hall
+  const YOU = [-90.3034512, 38.6466839];
+  const dot = document.createElement("div");
+  dot.className = "you";
+  dot.innerHTML = "<i></i><b></b>";
+  new maplibregl.Marker({ element: dot, offset: [-34, 12] }).setLngLat(YOU).addTo(map);
+
+  map.on("load", async () => {
+    const data = await (await fetch("labels.geojson")).json();
+    map.addSource("bldg-labels", { type: "geojson", data });
+    map.addLayer({
+      id: "bldg-labels", type: "symbol", source: "bldg-labels", minzoom: 15.5,
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 15.5, 9, 18, 12],
+        "text-max-width": 7,
+        "text-padding": 2
+      },
+      paint: { "text-color": "#333", "text-halo-color": "#fff", "text-halo-width": 1.5 }
+    });
+    const dining = await (await fetch("dining.geojson")).json();
+    map.addSource("dining", { type: "geojson", data: dining });
+    // Teardrop pin, drawn once on a canvas
+    const s = 2, w = 24 * s, h = 34 * s, c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    g.scale(s, s);
+    g.beginPath();
+    g.moveTo(12, 33);
+    g.bezierCurveTo(12, 33, 2, 20, 2, 12);
+    g.arc(12, 12, 10, Math.PI, 0);
+    g.bezierCurveTo(22, 20, 12, 33, 12, 33);
+    g.closePath();
+    g.fillStyle = "#808080"; g.fill();
+    g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
+    g.beginPath(); g.arc(12, 12, 3.6, 0, Math.PI * 2); g.fillStyle = "#fff"; g.fill();
+    map.addImage("pin", g.getImageData(0, 0, w, h), { pixelRatio: s });
+    map.addLayer({
+      id: "dining-pts", type: "symbol", source: "dining",
+      layout: { "icon-image": "pin", "icon-anchor": "bottom", "icon-allow-overlap": true }
+    });
+    map.addLayer({
+      id: "dining-labels", type: "symbol", source: "dining",
+      layout: {
+        "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-max-width": 9,
+        "text-variable-anchor": ["left", "right", "top"], "text-radial-offset": 1.4, "text-allow-overlap": true,
+        "text-offset": [0, -1.2]
+      },
+      paint: { "text-color": "#222", "text-halo-color": "#fff", "text-halo-width": 1.8 }
+    });
+  });
+  // Labels only: strip every icon from symbol layers
+  map.on("styledata", () => {
+    map.getStyle().layers.forEach(l => {
+      if (l.id !== "dining-pts" && l.type === "symbol" && l.layout && l.layout["icon-image"]) map.setLayoutProperty(l.id, "icon-image", null);
+    });
+  });
+</script>
+</body>
+</html>
